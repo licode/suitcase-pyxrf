@@ -192,10 +192,7 @@ def _make_hdf_srx(fpath, hdr, config_data,
                              create_each_det=create_each_det)
 
 
-def map_data2D(data, datashape,
-               det_list=('xspress3_ch1', 'xspress3_ch2', 'xspress3_ch3'),
-               pos_list=('zpssx[um]', 'zpssy[um]'),
-               scaler_list=('sclr1_ch3', 'sclr1_ch4'),
+def map_data2D(data, datashape, det_list, pos_list, scaler_list,
                fly_type=None, subscan_dims=None, spectrum_len=4096):
     """
     Data is obained from databroker. Transfer items from data to a dictionay of
@@ -210,11 +207,11 @@ def map_data2D(data, datashape,
         data from data broker
     datashape : tuple or list
         shape of two D image
-    det_list : list, tuple, optional
+    det_list : list, tuple
         list of detector channels
-    pos_list : list, tuple, optional
+    pos_list : list, tuple
         list of pos pv
-    scaler_list : list, tuple, optional
+    scaler_list : list, tuple
         list of scaler pv
     fly_type : string or optional
         raster scan (snake scan) or normal
@@ -281,7 +278,7 @@ def map_data2D(data, datashape,
 
 def write_db_to_hdf_base(fpath, data, num_det=3, create_each_det=True):
     """
-    Data is obained based on databroker, and save the data to hdf file.
+    Data is a dictionary of numpy array. Save the data to hdf file.
 
     Parameters
     ----------
