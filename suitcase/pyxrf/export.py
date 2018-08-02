@@ -6,8 +6,9 @@ logger = logging.getLogger()
 
 
 def _make_hdf_srx(fpath, hdr, config_data,
-                  create_each_det=False,
-                  save_scalar=True, num_end_lines_excluded=None):
+                  num_det=3, create_each_det=False,
+                  save_scalar=True, num_end_lines_excluded=None,
+                  spectrum_len = 4096):
     """
     Save the data from databroker to hdf file for SRX beamline.
 
@@ -21,6 +22,8 @@ def _make_hdf_srx(fpath, hdr, config_data,
         dictionary to map general name like xrf_detector to name used
         in databroker, like xs_settings_ch1, xs_settings_ch2, these names
         might change due to configuration at beamline.
+    num_det: int, optional
+        number of fluorescence detectors
     create_each_det: bool, optional
         Do not create data for each detector is data size is too large,
         if set as false. This will slow down the speed of creating hdf file
@@ -29,8 +32,10 @@ def _make_hdf_srx(fpath, hdr, config_data,
         choose to save scaler data or not for srx beamline, test purpose only.
     num_end_lines_excluded : int, optional
         remove the last few bad lines
+    spectrum_len : int, optional
+        standard spectrum length
     """
-    spectrum_len = 4096
+
     start_doc = hdr['start']
     plan_n = start_doc.get('plan_name')
     if 'fly' not in plan_n: # not fly scan, step scan instead
@@ -59,33 +64,28 @@ def _make_hdf_srx(fpath, hdr, config_data,
         if xrf_detector_names[0] not in data.keys():
             xrf_detector_names = ['xs_channel'+str(i) for i in range(1,4)]
         logger.info('Saving data to hdf file.')
-        write_db_to_hdf(fpath, data,
-                        datashape,
-                        det_list=xrf_detector_names,
-                        #roi_dict=roi_dict,
-                        pos_list=hdr.start.motors,
-                        scaler_list=config_data['scaler_list'],
-                        fly_type=fly_type,
-                        base_val=config_data['base_value'])  #base value shift for ic
-        if 'xs2' in hdr.start.detectors: # second dector 
+        data_new = map_data2D(data, datashape,
+                              det_list=xrf_detector_names,
+                              pos_list=hdr.start.motors,
+                              fly_type=fly_type, spectrum_len=spectrum_len)
+        write_db_to_hdf_base(fpath, new_data, num_det=num_det,
+                             create_each_det=create_each_det)
+        if 'xs2' in hdr.start.detectors: # second dector
             logger.info('Saving data to hdf file for second xspress3 detector.')
             tmp = fpath.split('.')
             fpath1 = '.'.join([tmp[0]+'_1', tmp[1]])
-            write_db_to_hdf(fpath1, data,
-                            datashape,
-                            det_list=config_data['xrf_detector2'],
-                            #roi_dict=roi_dict,
-                            pos_list=hdr.start.motors,
-                            scaler_list=config_data['scaler_list'],
-                            fly_type=fly_type,
-                            base_val=config_data['base_value'])  #base value shift for ic
+            data_new = map_data2D(data, datashape,
+                                  det_list=config_data['xrf_detector2'],
+                                  pos_list=hdr.start.motors,
+                                  fly_type=fly_type, spectrum_len=spectrum_len)
+            write_db_to_hdf_base(fpath1, new_data, num_det=num_det,
+                                 create_each_det=create_each_det)
     else:
         # srx fly scan
         # Added by AMK to allow flying of single element on xs2
         if 'E_tomo' in start_doc['scaninfo']['type']:
             num_det = 1
-        else:
-            num_det = 3
+
         if save_scalar is True:
             scaler_list = ['i0', 'time']
             xpos_name = 'enc1'
@@ -190,3 +190,148 @@ def _make_hdf_srx(fpath, hdr, config_data,
             create_each_det = True
         write_db_to_hdf_base(fpath, new_data, num_det=num_det,
                              create_each_det=create_each_det)
+
+
+def map_data2D(data, datashape,
+               det_list=('xspress3_ch1', 'xspress3_ch2', 'xspress3_ch3'),
+               pos_list=('zpssx[um]', 'zpssy[um]'),
+               scaler_list=('sclr1_ch3', 'sclr1_ch4'),
+               fly_type=None, subscan_dims=None, spectrum_len=4096):
+    """
+    Data is obained from databroker. Transfer items from data to a dictionay of
+    numpy array, which has 2D shape same as scanning area.
+
+    This function can handle stopped/aborted scans. Raster scan (snake scan) is
+    also considered.
+
+    Parameters
+    ----------
+    data : pandas.core.frame.DataFrame
+        data from data broker
+    datashape : tuple or list
+        shape of two D image
+    det_list : list, tuple, optional
+        list of detector channels
+    pos_list : list, tuple, optional
+        list of pos pv
+    scaler_list : list, tuple, optional
+        list of scaler pv
+    fly_type : string or optional
+        raster scan (snake scan) or normal
+    subscan_dims : 1D array or optional
+        used at HXN, 2D of a large area is split into small area scans
+    spectrum_len : int, optional
+        standard spectrum length
+
+    Returns
+    -------
+    dict of numpy array
+    """
+    data_output = {}
+    sum_data = None
+    new_v_shape = datashape[0]  # updated if scan is not completed
+
+    for n in range(len(det_list)):
+        c_name = det_list[n]
+        if c_name in data:
+            detname = 'det'+str(n+1)
+            logger.info('read data from %s' % c_name)
+            channel_data = data[c_name]
+
+            # new veritcal shape is defined to ignore zeros points caused by stopped/aborted scans
+            new_v_shape = len(channel_data) // datashape[1]
+            new_data = np.vstack(channel_data)
+            new_data = new_data[:new_v_shape*datashape[1], :]
+            new_data = new_data.reshape([new_v_shape, datashape[1],
+                                         len(channel_data[1])])
+            if new_data.shape[2] != spectrum_len:
+                # merlin detector has spectrum len 2048
+                # make all the spectrum len to 4096, to avoid unpredicted error in fitting part
+                new_tmp = np.zeros([new_data.shape[0], new_data.shape[1], spectrum_len])
+                new_tmp[:,:,:new_data.shape[2]] = new_data
+                new_data = new_tmp
+            if fly_type in ('pyramid',):
+                new_data = flip_data(new_data, subscan_dims=subscan_dims)
+            data_output[detname] = new_data
+
+    # scanning position data
+    pos_names, pos_data = get_name_value_from_db(pos_list, data,
+                                                 datashape)
+    for i in range(len(pos_names)):
+        if 'x' in pos_names[i]:
+            pos_names[i] = 'x_pos'
+        elif 'y' in pos_names[i]:
+            pos_names[i] = 'y_pos'
+    if fly_type in ('pyramid',):
+        for i in range(pos_data.shape[2]):
+            # flip position the same as data flip on det counts
+            pos_data[:, :, i] = flip_data(pos_data_temp[:, :, i], subscan_dims=subscan_dims)
+    for i, v in enumerate(pos_names):
+        data_output[v] = pos_data[:, :, i]
+
+    # scaler data
+    scaler_names, scaler_data = get_name_value_from_db(scaler_list, data,
+                                                       datashape)
+    if fly_type in ('pyramid',):
+        scaler_data = flip_data(scaler_data, subscan_dims=subscan_dims)
+    for i, v in enumerate(scaler_names):
+        data_output[v] = scaler_data[:, :, i]
+    return data_output
+
+
+def write_db_to_hdf_base(fpath, data, num_det=3, create_each_det=True):
+    """
+    Data is obained based on databroker, and save the data to hdf file.
+
+    Parameters
+    ----------
+    fpath: str
+        path to save hdf file
+    data : dict
+        fluorescence data with scaler value and positions
+    num_det : int
+        number of detector
+    create_each_det : Bool, optional
+        if number of point is too large, only sum data is saved in h5 file
+    """
+    interpath = 'xrfmap'
+    sum_data = None
+
+    with h5py.File(fpath, 'a') as f:
+        if create_each_det is True:
+            for n in range(num_det):
+                detname = 'det' + str(n+1)
+                new_data = data[detname]
+
+                if sum_data is None:
+                    sum_data = new_data
+                else:
+                    sum_data += new_data
+
+                dataGrp = f.create_group(interpath+'/'+detname)
+                ds_data = dataGrp.create_dataset('counts', data=new_data, compression='gzip')
+                ds_data.attrs['comments'] = 'Experimental data from channel ' + str(n)
+        else:
+            sum_data = data['det_sum']
+
+        # summed data
+        if sum_data is not None:
+            dataGrp = f.create_group(interpath+'/detsum')
+            ds_data = dataGrp.create_dataset('counts', data=sum_data, compression='gzip')
+            ds_data.attrs['comments'] = 'Experimental data from channel sum'
+
+        # add positions
+        if 'pos_names' in data:
+            dataGrp = f.create_group(interpath+'/positions')
+            pos_names = data['pos_names']
+            pos_data = data['pos_data']
+            dataGrp.create_dataset('name', data=helper_encode_list(pos_names))
+            dataGrp.create_dataset('pos', data=pos_data)
+
+        # scaler data
+        if 'scaler_data' in data:
+            dataGrp = f.create_group(interpath+'/scalers')
+            scaler_names = data['scaler_names']
+            scaler_data = data['scaler_data']
+            dataGrp.create_dataset('name', data=helper_encode_list(scaler_names))
+            dataGrp.create_dataset('val', data=scaler_data)
