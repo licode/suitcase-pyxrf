@@ -332,3 +332,18 @@ def write_db_to_hdf_base(fpath, data, num_det=3, create_each_det=True):
             scaler_data = data['scaler_data']
             dataGrp.create_dataset('name', data=helper_encode_list(scaler_names))
             dataGrp.create_dataset('val', data=scaler_data)
+
+
+def get_name_value_from_db(name_list, data, datashape):
+    """
+    Get data from db, and parse it to the required format and output.
+    """
+    pos_names = []
+    pos_data = np.zeros([datashape[0], datashape[1], len(name_list)])
+    for i, v in enumerate(name_list):
+        posv = np.zeros(datashape[0]*datashape[1])  # keep shape unchanged, so stopped/aborted run can be handled.
+        data[v] = np.asarray(data[v])  # in case data might be list
+        posv[:data[v].shape[0]] = np.asarray(data[v])
+        pos_data[:, :, i] = posv.reshape([datashape[0], datashape[1]])
+        pos_names.append(str(v))
+    return pos_names, pos_data
