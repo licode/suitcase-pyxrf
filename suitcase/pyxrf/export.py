@@ -43,19 +43,19 @@ def _make_hdf_srx(fpath, hdr, config_data,
         fly_type = None
 
         snake_scan = start_doc.get('snaking')
-        if snake_scan[1] == True:
+        if snake_scan[1]:
             fly_type = 'pyramid'
 
-        try:
+        if hdr.stop is not None:
             data = hdr.table(fill=True, convert_times=False)
-        except IndexError: # scan is not finished
+        else: # scan is not finished
             total_len = get_total_scan_point(hdr) - 2
             evs, _ = zip(*zip(hdr.events(hdr, fill=True), range(total_len)))
             namelist = (config_data['xrf_detector'] +
                         hdr.start.motors +config_data['scaler_list'])
             dictv = {v:[] for v in namelist}
             for e in evs:
-                for k,v in six.iteritems(dictv):
+                for k,v in dictv.items():
                     dictv[k].append(e.data[k])
             data = pd.DataFrame(dictv, index=np.arange(1, total_len+1)) # need to start with 1
 
@@ -68,8 +68,8 @@ def _make_hdf_srx(fpath, hdr, config_data,
                               det_list=xrf_detector_names,
                               pos_list=hdr.start.motors,
                               fly_type=fly_type, spectrum_len=spectrum_len)
-        write_db_to_hdf_base(fpath, new_data, num_det=num_det,
-                             create_each_det=create_each_det)
+        write_db_to_hdf(fpath, new_data, num_det=num_det,
+                        create_each_det=create_each_det)
         if 'xs2' in hdr.start.detectors: # second dector
             logger.info('Saving data to hdf file for second xspress3 detector.')
             tmp = fpath.split('.')
@@ -78,15 +78,15 @@ def _make_hdf_srx(fpath, hdr, config_data,
                                   det_list=config_data['xrf_detector2'],
                                   pos_list=hdr.start.motors,
                                   fly_type=fly_type, spectrum_len=spectrum_len)
-            write_db_to_hdf_base(fpath1, new_data, num_det=num_det,
-                                 create_each_det=create_each_det)
+            write_db_to_hdf(fpath1, new_data, num_det=num_det,
+                            create_each_det=create_each_det)
     else:
         # srx fly scan
         # Added by AMK to allow flying of single element on xs2
         if 'E_tomo' in start_doc['scaninfo']['type']:
             num_det = 1
 
-        if save_scalar is True:
+        if save_scalar:
             scaler_list = ['i0', 'time']
             xpos_name = 'enc1'
             ypos_name = 'hf_stage_y'
@@ -109,10 +109,10 @@ def _make_hdf_srx(fpath, hdr, config_data,
         data = {}
         e = db.get_events(hdr, fill=True, stream_name='stream0')
 
-        if save_scalar is True:
+        if save_scalar:
             new_data['scaler_names'] = scaler_list
             scaler_tmp = np.zeros([datashape[0], datashape[1], len(scaler_list)])
-            if vertical_fast is True:  # data shape only has impact on scalar data
+            if vertical_fast:  # data shape only has impact on scalar data
                 scaler_tmp = np.zeros([datashape[1], datashape[0], len(scaler_list)])
             for v in scaler_list+[xpos_name]:
                 data[v] = np.zeros([datashape[0], datashape[1]])
@@ -125,7 +125,7 @@ def _make_hdf_srx(fpath, hdr, config_data,
 
         for m,v in enumerate(e):
             if m < datashape[0]:
-                if save_scalar is True:
+                if save_scalar:
                     for n in scaler_list+[xpos_name]:
                         min_len = min(v.data[n].size, datashape[1])
                         data[n][m, :min_len] = v.data[n][:min_len]
@@ -140,14 +140,14 @@ def _make_hdf_srx(fpath, hdr, config_data,
                     for i in range(num_det):  # in case the data length in each line is different
                         new_data['det'+str(i+1)][m,:v.data['fluor'].shape[0],:] = v.data['fluor'][:,i,:]
 
-        if vertical_fast is True: # need to transpose the data, as we scan y first
+        if vertical_fast: # need to transpose the data, as we scan y first
             if create_each_det is False:
                 new_data['det_sum'] = np.transpose(new_data['det_sum'], axes=(1,0,2))
             else:
                 for i in range(num_det):
                     new_data['det'+str(i+1)] = np.transpose(new_data['det'+str(i+1)], axes=(1,0,2))
 
-        if save_scalar is True:
+        if save_scalar:
             if vertical_fast is False:
                 for i,v in enumerate(scaler_list):
                     scaler_tmp[:, :, i] = data[v]
@@ -158,7 +158,7 @@ def _make_hdf_srx(fpath, hdr, config_data,
             x_pos = data[xpos_name]
 
         # get y position data
-        if save_scalar is True:
+        if save_scalar:
             data1 = hdr.table(hdr, fill=True, stream_name='primary')
             if num_end_lines_excluded is not None:
                 data1 = data1[:datashape[0]]
@@ -175,7 +175,7 @@ def _make_hdf_srx(fpath, hdr, config_data,
                 data_tmp[1,:,:] = yv
                 new_data['pos_data'] = data_tmp
                 new_data['pos_names'] = ['x_pos', 'y_pos']
-                if vertical_fast is True: # need to transpose the data, as we scan y first
+                if vertical_fast: # need to transpose the data, as we scan y first
                     data_tmp = np.zeros([2, x_pos.shape[1], x_pos.shape[0]]) # fast scan on y has impact for scalar data
                     data_tmp[1,:,:] = x_pos.T
                     data_tmp[0,:,:] = yv.T
@@ -188,8 +188,8 @@ def _make_hdf_srx(fpath, hdr, config_data,
             create_each_det = False
         else:
             create_each_det = True
-        write_db_to_hdf_base(fpath, new_data, num_det=num_det,
-                             create_each_det=create_each_det)
+        write_db_to_hdf(fpath, new_data, num_det=num_det,
+                        create_each_det=create_each_det)
 
 
 def map_data2D(data, datashape, det_list, pos_list, scaler_list,
@@ -276,7 +276,7 @@ def map_data2D(data, datashape, det_list, pos_list, scaler_list,
     return data_output
 
 
-def write_db_to_hdf_base(fpath, data, num_det=3, create_each_det=True):
+def write_db_to_hdf(fpath, data, num_det=3, create_each_det=True):
     """
     Data is a dictionary of numpy array. Save the data to hdf file.
 
@@ -295,7 +295,7 @@ def write_db_to_hdf_base(fpath, data, num_det=3, create_each_det=True):
     sum_data = None
 
     with h5py.File(fpath, 'a') as f:
-        if create_each_det is True:
+        if create_each_det:
             for n in range(num_det):
                 detname = 'det' + str(n+1)
                 new_data = data[detname]
