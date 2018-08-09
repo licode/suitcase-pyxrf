@@ -251,8 +251,9 @@ def map_data2D(data, datashape, det_list, pos_list, scaler_list,
     data_output['det_sum'] = sum_data
 
     # scanning position data
-    pos_names, pos_data = get_name_value_from_db(pos_list, data,
-                                                 datashape)
+    pos_data = helper_scaler_value_2D(pos_list, data, datashape)
+    pos_names = pos_list
+
     for i in range(len(pos_names)):
         if 'x' in pos_names[i]:
             pos_names[i] = 'x_pos'
@@ -266,8 +267,9 @@ def map_data2D(data, datashape, det_list, pos_list, scaler_list,
         data_output[v] = pos_data[:, :, i]
 
     # scaler data
-    scaler_names, scaler_data = get_name_value_from_db(scaler_list, data,
-                                                       datashape)
+    scaler_data = helper_scaler_value_2D(scaler_list, data, datashape)
+    scaler_names = scaler_list
+
     if fly_type in ('pyramid',):
         scaler_data = flip_data(scaler_data, subscan_dims=subscan_dims)
     for i, v in enumerate(scaler_names):
@@ -337,19 +339,30 @@ def helper_encode_list(data, data_type='utf-8'):
     return [d.encode(data_type) for d in data]
 
 
-def get_name_value_from_db(name_list, data, datashape):
+def helper_scaler_value_2D(name_list, data, datashape):
     """
-    Get data from db, and parse it to the required format and output.
+    Helper function to transfer 1D scalar data into 2D with given shape.
+
+    Parameters
+    ----------
+    name_list : list
+        list of scalar names
+    data : dictionary or pd.series
+        1D scalar data
+    datashape : list or tuple
+        shape in 2D
+
+    Returns
+    -------
+    combined scalar data in 3D
     """
-    pos_names = []
     pos_data = np.zeros([datashape[0], datashape[1], len(name_list)])
     for i, v in enumerate(name_list):
         posv = np.zeros(datashape[0]*datashape[1])  # keep shape unchanged, so stopped/aborted run can be handled.
-        data[v] = np.asarray(data[v])  # in case data might be list
-        posv[:data[v].shape[0]] = np.asarray(data[v])
+        data[v] = np.asarray(data[v])
+        posv[:data[v].shape[0]] = np.asarray(data[v])  # scan may not finish.
         pos_data[:, :, i] = posv.reshape([datashape[0], datashape[1]])
-        pos_names.append(str(v))
-    return pos_names, pos_data
+    return pos_data
 
 
 def flip_data(input_data, subscan_dims=None):
@@ -389,5 +402,3 @@ def flip_data(input_data, subscan_dims=None):
                 new_data[start:end:2, :, :] = new_data[start:end:2, ::-1, :]
                 i += ny
     return new_data
-
-
