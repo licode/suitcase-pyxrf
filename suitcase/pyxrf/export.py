@@ -120,28 +120,35 @@ def _make_hdf_srx(fpath, hdr, config_data,
                     # position data or i0 has shorter length than fluor data
                     if min_len < datashape[1]:
                         len_diff = datashape[1] - min_len
-                        interp_list = (v.data[n][-1] - v.data[n][-3]) / 2 * np.arange(1, len_diff+1) + v.data[n][-1]
-                        data[n][m, min_len : datashape[1]] = interp_list
+                        interp_list = (
+                            (v.data[n][-1] - v.data[n][-3]) / 2 *
+                            np.arange(1, len_diff+1) + v.data[n][-1])
+                        data[n][m, min_len: datashape[1]] = interp_list
+                shapev = v.data['fluor'].shape[0]
                 if create_each_det is False:
                     for i in range(num_det):
-                        new_data['det_sum'][m, :v.data['fluor'].shape[0], :] += v.data['fluor'][:,i,:]
+                        new_data['det_sum'][m, :shapev, :] += \
+                            v.data['fluor'][:, i, :]
                 else:
-                    for i in range(num_det):  # in case the data length in each line is different
-                        new_data['det'+str(i+1)][m, :v.data['fluor'].shape[0], :] = v.data['fluor'][:,i,:]
+                    for i in range(num_det):
+                        # in case the data length in each line is different
+                        new_data['det'+str(i+1)][m, :shapev, :] = \
+                            v.data['fluor'][:, i, :]
 
-        if vertical_fast: # need to transpose the data, as we scan y first
+        if vertical_fast:  # need to transpose the data, as we scan y first
             if create_each_det is False:
                 new_data['det_sum'] = np.transpose(new_data['det_sum'],
-                                                   axes=(1,0,2))
+                                                   axes=(1, 0, 2))
             else:
                 for i in range(num_det):
-                    new_data['det'+str(i+1)] = np.transpose(new_data['det'+str(i+1)], axes=(1,0,2))
+                    new_data['det'+str(i+1)] = \
+                        np.transpose(new_data['det'+str(i+1)], axes=(1, 0, 2))
 
         if vertical_fast is False:
-            for i,v in enumerate(scaler_list):
+            for i, v in enumerate(scaler_list):
                 scaler_tmp[:, :, i] = data[v]
         else:
-            for i,v in enumerate(scaler_list):
+            for i, v in enumerate(scaler_list):
                 scaler_tmp[:, :, i] = data[v].T
         new_data['scaler_data'] = scaler_tmp
         x_pos = data[xpos_name]
@@ -151,7 +158,7 @@ def _make_hdf_srx(fpath, hdr, config_data,
         if num_end_lines_excluded is not None:
             data1 = data1[:datashape[0]]
         if ypos_name not in data1.keys():
-            ypos_name = 'hf_stage_z'        #vertical along z
+            ypos_name = 'hf_stage_z'        # vertical along z
         y_pos0 = np.hstack(data1[ypos_name])
         # y position is more than actual x pos, scan not finished?
         if len(y_pos0) >= x_pos.shape[0]:
@@ -164,7 +171,7 @@ def _make_hdf_srx(fpath, hdr, config_data,
             data_tmp[1, :, :] = yv
             new_data['pos_data'] = data_tmp
             new_data['pos_names'] = ['x_pos', 'y_pos']
-            if vertical_fast: # need to transpose the data, as we scan y first
+            if vertical_fast:  # need to transpose the data, as we scan y first
                 # fast scan on y has impact for scalar data
                 data_tmp = np.zeros([2, x_pos.shape[1], x_pos.shape[0]])
                 data_tmp[1, :, :] = x_pos.T
@@ -234,7 +241,7 @@ def map_data2D(data, datashape, det_list, pos_list, scaler_list,
                 # to avoid unpredicted error in fitting part
                 new_tmp = np.zeros([new_data.shape[0],
                                     new_data.shape[1], spectrum_len])
-                new_tmp[:,:,:new_data.shape[2]] = new_data
+                new_tmp[:, :, :new_data.shape[2]] = new_data
                 new_data = new_tmp
             if fly_type in ('pyramid',):
                 new_data = flip_data(new_data, subscan_dims=subscan_dims)
@@ -306,7 +313,9 @@ def write_db_to_hdf(fpath, data, num_det=3, create_each_det=True):
                 dataGrp = f.create_group(interpath+'/'+detname)
                 ds_data = dataGrp.create_dataset('counts', data=new_data,
                                                  compression='gzip')
-                ds_data.attrs['comments'] = 'Experimental data from channel ' + str(n)
+                ds_data.attrs['comments'] = (
+                    'Experimental data from channel {}'.format(n))
+
         else:
             sum_data = data['det_sum']
 
@@ -358,7 +367,8 @@ def helper_scaler_value_2D(name_list, data, datashape):
     """
     pos_data = np.zeros([datashape[0], datashape[1], len(name_list)])
     for i, v in enumerate(name_list):
-        posv = np.zeros(datashape[0]*datashape[1])  # keep shape unchanged, so stopped/aborted run can be handled.
+        # keep shape unchanged, so stopped/aborted run can be handled.
+        posv = np.zeros(datashape[0]*datashape[1])
         data[v] = np.asarray(data[v])
         posv[:data[v].shape[0]] = np.asarray(data[v])  # scan may not finish.
         pos_data[:, :, i] = posv.reshape([datashape[0], datashape[1]])
